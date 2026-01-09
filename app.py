@@ -15,19 +15,24 @@ conn = sqlite3.connect('business_manager.db', check_same_thread=False)
 c = conn.cursor()
 
 def init_db():
+    # Criação das tabelas com a nova coluna 'finished'
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, is_working INTEGER DEFAULT 0, 
                   start_time_db TEXT, active_project_id TEXT, manager INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS projects 
-                 (p_number TEXT PRIMARY KEY, name TEXT, allocated FLOAT, remaining FLOAT, owner TEXT)''')
+                 (p_number TEXT PRIMARY KEY, name TEXT, allocated FLOAT, remaining FLOAT, owner TEXT, finished INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
                  (user TEXT, project_id TEXT, date DATE, start_time TIMESTAMP, end_time TIMESTAMP, duration FLOAT)''')
     
-    cols = [column[1] for column in c.execute("PRAGMA table_info(users)")]
-    if "is_working" not in cols: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
-    if "start_time_db" not in cols: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
-    if "active_project_id" not in cols: c.execute("ALTER TABLE users ADD COLUMN active_project_id TEXT")
-    if "manager" not in cols: c.execute("ALTER TABLE users ADD COLUMN manager INTEGER DEFAULT 0")
+    # Migração para bancos de dados existentes
+    cols_users = [column[1] for column in c.execute("PRAGMA table_info(users)")]
+    if "is_working" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
+    if "start_time_db" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
+    if "active_project_id" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN active_project_id TEXT")
+    if "manager" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN manager INTEGER DEFAULT 0")
+    
+    cols_projects = [column[1] for column in c.execute("PRAGMA table_info(projects)")]
+    if "finished" not in cols_projects: c.execute("ALTER TABLE projects ADD COLUMN finished INTEGER DEFAULT 0")
     
     c.execute("INSERT OR IGNORE INTO users (username, password, manager) VALUES ('admin', 'admin123', 1)")
     conn.commit()
@@ -83,11 +88,12 @@ def generate_manager_report_pdf(df):
     for user in users:
         elements.append(Paragraph(f"User: {user}", styles['Heading2']))
         user_projs = df[df['owner'] == user]
-        data = [["Project ID", "Name", "Allocated", "Remaining"]]
+        data = [["Project ID", "Name", "Allocated", "Remaining", "Finished"]]
         for _, row in user_projs.iterrows():
-            data.append([row['p_number'], row['name'], f"{row['allocated']:.2f}", f"{row['remaining']:.2f}"])
+            is_fin = "Yes" if row['finished'] else "No"
+            data.append([row['p_number'], row['name'], f"{row['allocated']:.2f}", f"{row['remaining']:.2f}", is_fin])
         
-        table = Table(data, colWidths=[3*cm, 7*cm, 3*cm, 3*cm])
+        table = Table(data, colWidths=[2.5*cm, 6.5*cm, 2.5*cm, 2.5*cm, 2*cm])
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), ('GRID', (0, 0), (-1, -1), 0.5, colors.black)]))
         elements.append(table)
         elements.append(Spacer(1, 0.5*cm))
@@ -147,6 +153,7 @@ if not st.session_state['logged_in']:
                 st.success("User created! Please login.")
             except: st.error("Username already exists.")
 else:
+    # Sidebar styling
     st.markdown("""<style>
         [data-testid="stSidebar"] { background-color: #262730 !important; }
         [data-testid="stSidebar"] * { color: #FFFFFF !important; }
@@ -167,9 +174,13 @@ else:
             col1, col2 = st.columns(2)
             num, name = col1.text_input("Project ID"), col2.text_input("Project Name")
             hours = st.number_input("Allocated Time", min_value=0.0)
+            # NOVO CAMPO: Finished (padrão False)
+            is_finished = st.checkbox("Finished", value=False)
+            
             if st.form_submit_button("Save Project"):
                 try:
-                    c.execute("INSERT INTO projects VALUES (?,?,?,?,?)", (num, name, hours, hours, current_user))
+                    fin_val = 1 if is_finished else 0
+                    c.execute("INSERT INTO projects VALUES (?,?,?,?,?,?)", (num, name, hours, hours, current_user, fin_val))
                     conn.commit(); st.success("Project Registered!"); st.rerun()
                 except: st.error("Project ID already exists.")
         
@@ -177,7 +188,6 @@ else:
         params = () if is_manager else (current_user,)
         my_projs = pd.read_sql(query, conn, params=params)
         
-        # CORREÇÃO: Filtra a coluna 'owner' (usuário) se não for manager
         if not is_manager:
             my_projs = my_projs.drop(columns=['owner'])
             
@@ -199,7 +209,8 @@ else:
         else: t_label = "Available"
 
         st.toggle(t_label, value=working_now, disabled=True)
-        projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=?", conn, params=(current_user,))
+        # Filtro para não listar projetos finalizados no Tracker (Opcional, mas recomendado)
+        projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=? AND finished=0", conn, params=(current_user,))
         if not projs.empty:
             target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
             p_id = target.split(" - ")[0]

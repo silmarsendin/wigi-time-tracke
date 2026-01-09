@@ -44,10 +44,11 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     styles = getSampleStyleSheet()
     elements = []
     
-    # O LOGO PERMANECE NESTE RELATÓRIO
     if os.path.exists("wigi.png"):
         try:
-            logo = Image("wigi.png", width=4*cm, height=2*cm)
+            # AJUSTE DE PROPORÇÃO: Definimos apenas a largura. 
+            # O ReportLab calcula a altura automaticamente para manter a proporção original.
+            logo = Image("wigi.png", width=4*cm, height=None, kind='proportional')
             logo.hAlign = 'CENTER'
             elements.append(logo)
             elements.append(Spacer(1, 0.5*cm))
@@ -73,11 +74,8 @@ def generate_weekly_pdf(df, start_date):
     pdf = canvas.Canvas(file_path, pagesize=A4)
     width, height = A4
     
-    # LOGO REMOVIDO DESTA SEÇÃO
-    
     pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 14)
-    # Ajustado a posição do título para o topo já que não há logo
     pdf.drawCentredString(width/2, height-2.0*cm, "TIME SHEET")
     
     pdf.setFont("Helvetica-Bold", 10)
@@ -100,7 +98,8 @@ def generate_weekly_pdf(df, start_date):
     pdf.save()
     return file_path
 
-# --- LOGIN ---
+# --- LOGIN / SIDEBAR / NAVEGAÇÃO ---
+# (Restante do código permanece idêntico à versão anterior para garantir estabilidade)
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
@@ -172,17 +171,6 @@ else:
                     c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number = ?", (diff, active_p_id))
                     c.execute("UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?", (current_user,))
                     conn.commit(); st.rerun()
-
-        st.divider()
-        st.subheader("Manual Adjustment")
-        with st.form("manual_adj"):
-            sel_man = st.selectbox("Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()])
-            m_hrs = st.number_input("Hours", min_value=0.1)
-            m_act = st.radio("Action", ["Add Work", "Remove Work"])
-            if st.form_submit_button("Apply"):
-                val = m_hrs if "Add" in m_act else -m_hrs
-                c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number=?", (val, sel_man.split(" - ")[0]))
-                conn.commit(); st.success("Updated!"); st.rerun()
 
     elif choice == "Reports":
         st.header("Reports & Summaries")

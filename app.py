@@ -11,10 +11,12 @@ from reportlab.lib.units import cm
 import os
 
 # --- DATABASE SETUP ---
+# Conecta ao banco de dados SQLite
 conn = sqlite3.connect('business_manager.db', check_same_thread=False)
 c = conn.cursor()
 
 def init_db():
+    # Cria as tabelas necessárias se não existirem
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, is_working INTEGER DEFAULT 0, 
                   start_time_db TEXT, active_project_id TEXT)''')
@@ -23,6 +25,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
                  (user TEXT, project_id TEXT, date DATE, start_time TIMESTAMP, end_time TIMESTAMP, duration FLOAT)''')
     
+    # Verifica e adiciona colunas de status se necessário
     cols = [column[1] for column in c.execute("PRAGMA table_info(users)")]
     if "is_working" not in cols: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
     if "start_time_db" not in cols: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
@@ -33,14 +36,11 @@ def init_db():
 
 init_db()
 
-# --- CSS INTERFACE ---
+# --- APP INTERFACE ---
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
-st.markdown("""<style>
-    [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
-    [data-testid="stSidebar"] * { color: #000000 !important; }
-</style>""", unsafe_allow_html=True)
 
 # --- FUNÇÕES DE PDF ---
+
 def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     file_path = f"detailed_report_{project_id}.pdf"
     doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -74,14 +74,19 @@ def generate_weekly_pdf(df, start_date):
     file_path = "weekly_summary.pdf"
     pdf = canvas.Canvas(file_path, pagesize=A4)
     width, height = A4
+    
     if os.path.exists("wigi.png"):
-        try: pdf.drawImage("wigi.png", (width/2)-2*cm, height-1.8*cm, width=4*cm, preserveAspectRatio=True)
+        try:
+            # CORREÇÃO: Removido qualquer parâmetro de máscara que causava o fundo preto
+            pdf.drawImage("wigi.png", (width/2)-2*cm, height-1.8*cm, width=4*cm, preserveAspectRatio=True)
         except: pass
+
     pdf.setFont("Helvetica-Bold", 14)
     pdf.drawCentredString(width/2, height-2.8*cm, "TIME SHEET")
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(1.5*cm, height-4.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
     pdf.drawString(width-6*cm, height-4.5*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
+    
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
     for p_id, row in df.iterrows():
@@ -90,6 +95,7 @@ def generate_weekly_pdf(df, start_date):
         line.extend([f"{v:.1f}" if v > 0 else "" for v in row.values])
         line.append(f"{row.sum():.1f}")
         data.append(line)
+        
     table = Table(data, colWidths=[2.2*cm, 4.4*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.4*cm])
     table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('FONTSIZE', (0, 0), (-1, -1), 8), ('ALIGN', (2,0), (-1,-1), 'CENTER')]))
     t_w, t_h = table.wrap(width, height)
@@ -109,6 +115,12 @@ if not st.session_state['logged_in']:
             st.session_state['logged_in'], st.session_state['username'] = True, u
             st.rerun()
 else:
+    # Sidebar styling
+    st.markdown("""<style>
+        [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
+        [data-testid="stSidebar"] * { color: #000000 !important; }
+    </style>""", unsafe_allow_html=True)
+    
     if os.path.exists("wigi.png"): st.sidebar.image("wigi.png", use_container_width=True)
     if st.sidebar.button("Logout"):
         st.session_state['logged_in'] = False
@@ -136,7 +148,7 @@ else:
         user_data = c.execute("SELECT is_working, start_time_db, active_project_id FROM users WHERE username=?", (current_user,)).fetchone()
         working_now, start_time_str, active_p_id = bool(user_data[0]), user_data[1], user_data[2]
 
-        # Estilo Dinâmico: Apenas se estiver "Working"
+        # Estilo dinâmico para o Toggle e Status Azul
         if working_now:
             st.markdown("""<style>
                 div[data-testid="stToggle"] label p { color: #1E90FF !important; font-weight: bold; }

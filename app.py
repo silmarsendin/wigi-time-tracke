@@ -46,13 +46,16 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     
     if os.path.exists("wigi.png"):
         try:
-            # AJUSTE DE PROPORÇÃO: Definimos apenas a largura. 
-            # O ReportLab calcula a altura automaticamente para manter a proporção original.
-            logo = Image("wigi.png", width=4*cm, height=None, kind='proportional')
-            logo.hAlign = 'CENTER'
-            elements.append(logo)
+            # CORREÇÃO: Carregamos a imagem e definimos a largura. 
+            # O ReportLab calculará a altura proporcional internamente de forma segura.
+            img = Image("wigi.png")
+            img.drawWidth = 4*cm
+            img.drawHeight = (img.drawWidth * img.imageHeight) / img.imageWidth
+            img.hAlign = 'CENTER'
+            elements.append(img)
             elements.append(Spacer(1, 0.5*cm))
-        except: pass
+        except Exception as e:
+            st.error(f"Error loading logo: {e}")
 
     elements.append(Paragraph(f"Project Usage Report: {project_name}", styles['Title']))
     elements.append(Spacer(1, 12))
@@ -66,6 +69,7 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
         table = Table(data, colWidths=[3.5*cm, 4.5*cm, 4.5*cm, 3.5*cm])
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('ALIGN', (0,0), (-1,-1), 'CENTER')]))
         elements.append(table)
+    
     doc.build(elements)
     return file_path
 
@@ -98,8 +102,7 @@ def generate_weekly_pdf(df, start_date):
     pdf.save()
     return file_path
 
-# --- LOGIN / SIDEBAR / NAVEGAÇÃO ---
-# (Restante do código permanece idêntico à versão anterior para garantir estabilidade)
+# --- LOGIN E NAVEGAÇÃO ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
@@ -184,6 +187,7 @@ else:
             if l_date in weekly_df.columns and row['project_id'] in weekly_df.index:
                 weekly_df.at[row['project_id'], l_date] += row['duration']
         st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
+        
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("Export Weekly PDF"):

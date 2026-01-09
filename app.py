@@ -44,9 +44,9 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     styles = getSampleStyleSheet()
     elements = []
     
+    # O LOGO PERMANECE NESTE RELATÓRIO
     if os.path.exists("wigi.png"):
         try:
-            # Uso de Platypus Image que lida melhor com transparência em layouts complexos
             logo = Image("wigi.png", width=4*cm, height=2*cm)
             logo.hAlign = 'CENTER'
             elements.append(logo)
@@ -73,23 +73,16 @@ def generate_weekly_pdf(df, start_date):
     pdf = canvas.Canvas(file_path, pagesize=A4)
     width, height = A4
     
-    # Preencher o fundo da área do logo com branco antes de desenhar
-    pdf.setFillColor(colors.white)
-    pdf.rect(0, height-3*cm, width, 3*cm, fill=1, stroke=0)
-
-    if os.path.exists("wigi.png"):
-        try:
-            # CORREÇÃO DEFINITIVA: mask=None evita que o ReportLab tente criar uma máscara de transparência (causa do fundo preto)
-            pdf.drawImage("wigi.png", (width/2)-2*cm, height-2.2*cm, width=4*cm, preserveAspectRatio=True, mask=None)
-        except: pass
-
+    # LOGO REMOVIDO DESTA SEÇÃO
+    
     pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawCentredString(width/2, height-3.2*cm, "TIME SHEET")
+    # Ajustado a posição do título para o topo já que não há logo
+    pdf.drawCentredString(width/2, height-2.0*cm, "TIME SHEET")
     
     pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(1.5*cm, height-4.2*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
-    pdf.drawString(width-6*cm, height-4.2*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
+    pdf.drawString(1.5*cm, height-3.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
+    pdf.drawString(width-6*cm, height-3.0*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
     
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
@@ -103,7 +96,7 @@ def generate_weekly_pdf(df, start_date):
     table = Table(data, colWidths=[2.2*cm, 4.4*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.4*cm])
     table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('FONTSIZE', (0, 0), (-1, -1), 8), ('ALIGN', (2,0), (-1,-1), 'CENTER')]))
     t_w, t_h = table.wrap(width, height)
-    table.drawOn(pdf, 1.5*cm, height-6.5*cm-t_h)
+    table.drawOn(pdf, 1.5*cm, height-5.5*cm-t_h)
     pdf.save()
     return file_path
 

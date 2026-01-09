@@ -29,7 +29,6 @@ def init_db():
     if "active_project_id" not in cols: c.execute("ALTER TABLE users ADD COLUMN active_project_id TEXT")
     if "manager" not in cols: c.execute("ALTER TABLE users ADD COLUMN manager INTEGER DEFAULT 0")
     
-    # Define o admin como manager por padrão
     c.execute("INSERT OR IGNORE INTO users (username, password, manager) VALUES ('admin', 'admin123', 1)")
     conn.commit()
 
@@ -45,6 +44,7 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
     styles = getSampleStyleSheet()
     elements = []
+    
     if os.path.exists("wigi.png"):
         try:
             img = Image("wigi.png")
@@ -56,9 +56,12 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
             elements.append(img)
             elements.append(Spacer(1, 0.5*cm))
         except: pass
+
     elements.append(Paragraph(f"Project Usage Report: {project_name}", styles['Title']))
-    elements.append(Spacer(1, 12)); elements.append(Paragraph(f"Remaining Balance: {remaining:.2f} hours", styles['Normal']))
     elements.append(Spacer(1, 12))
+    elements.append(Paragraph(f"Remaining Balance: {remaining:.2f} hours", styles['Normal']))
+    elements.append(Spacer(1, 12))
+    
     if not logs_df.empty:
         data = [["Date", "Start", "End", "Duration (h)"]]
         for _, row in logs_df.iterrows():
@@ -66,6 +69,7 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
         table = Table(data, colWidths=[3.5*cm, 4.5*cm, 4.5*cm, 3.5*cm])
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('ALIGN', (0,0), (-1,-1), 'CENTER')]))
         elements.append(table)
+    
     doc.build(elements)
     return file_path
 
@@ -75,7 +79,6 @@ def generate_manager_report_pdf(df):
     styles = getSampleStyleSheet()
     elements = [Paragraph("Global Projects Status Report (Manager View)", styles['Title']), Spacer(1, 1*cm)]
     
-    # Agrupa por usuário para o relatório
     users = df['owner'].unique()
     for user in users:
         elements.append(Paragraph(f"User: {user}", styles['Heading2']))
@@ -114,19 +117,35 @@ def generate_weekly_pdf(df, start_date):
     t_w, t_h = table.wrap(width, height); table.drawOn(pdf, 1.5*cm, height-5.5*cm-t_h); pdf.save()
     return file_path
 
-# --- LOGIN ---
+# --- LOGIN / REGISTER INTERFACE ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
     st.title("WIGI Time Manager")
-    u, p = st.text_input("Username"), st.text_input("Password", type='password')
-    if st.button("Access"):
-        user_record = c.execute("SELECT username, manager FROM users WHERE username=? AND password=?", (u, p)).fetchone()
-        if user_record:
-            st.session_state['logged_in'], st.session_state['username'] = True, user_record[0]
-            st.session_state['is_manager'] = bool(user_record[1])
-            st.rerun()
+    tab1, tab2 = st.tabs(["Login", "New User"])
+    
+    with tab1:
+        u = st.text_input("Username", key="login_u")
+        p = st.text_input("Password", type='password', key="login_p")
+        if st.button("Access", key="btn_login"):
+            user_record = c.execute("SELECT username, manager FROM users WHERE username=? AND password=?", (u, p)).fetchone()
+            if user_record:
+                st.session_state['logged_in'], st.session_state['username'] = True, user_record[0]
+                st.session_state['is_manager'] = bool(user_record[1])
+                st.rerun()
+            else: st.error("Wrong credentials")
+            
+    with tab2:
+        new_u = st.text_input("New Username", key="reg_u")
+        new_p = st.text_input("New Password", type='password', key="reg_p")
+        if st.button("Register", key="btn_reg"):
+            try:
+                c.execute("INSERT INTO users (username, password, manager) VALUES (?, ?, 0)", (new_u, new_p))
+                conn.commit()
+                st.success("User created! Please login.")
+            except: st.error("Username already exists.")
 else:
+    # Sidebar styling
     st.markdown("""<style>
         [data-testid="stSidebar"] { background-color: #262730 !important; }
         [data-testid="stSidebar"] * { color: #FFFFFF !important; }
@@ -153,7 +172,6 @@ else:
                     conn.commit(); st.success("Project Registered!"); st.rerun()
                 except: st.error("Project ID already exists.")
         
-        # Manager vê tudo, usuário comum vê apenas os seus
         query = "SELECT * FROM projects" if is_manager else "SELECT * FROM projects WHERE owner=?"
         params = () if is_manager else (current_user,)
         my_projs = pd.read_sql(query, conn, params=params)
@@ -202,7 +220,6 @@ else:
                 with open(m_path, "rb") as f: st.download_button("Download Global Report", f, file_name=m_path)
             st.divider()
 
-        # Relatórios padrão continuam abaixo
         today = datetime.now().date()
         last_monday = today - timedelta(days=today.weekday())
         logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))

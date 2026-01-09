@@ -216,4 +216,36 @@ else:
         last_monday = today - timedelta(days=today.weekday())
         week_days = [last_monday + timedelta(days=i) for i in range(7)]
         
-        logs = pd.read_sql("SELECT project_id, date, duration FROM time
+        logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))
+        my_p_list = pd.read_sql("SELECT p_number FROM projects WHERE owner=?", conn, params=(current_user,))['p_number'].tolist()
+        
+        weekly_df = pd.DataFrame(index=my_p_list, columns=week_days).fillna(0.0)
+        for _, row in logs.iterrows():
+            log_date = datetime.strptime(str(row['date']), '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
+            if log_date in weekly_df.columns and row['project_id'] in weekly_df.index:
+                weekly_df.at[row['project_id'], log_date] += row['duration']
+        
+        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Export Weekly PDF"):
+                w_path = generate_weekly_pdf(weekly_df, last_monday)
+                with open(w_path, "rb") as f: st.download_button("Download Weekly PDF", f, file_name=w_path)
+        
+        with col_b:
+            st.write("---")
+            st.subheader("Detailed Project Report")
+            my_p_info = pd.read_sql("SELECT p_number, name, remaining FROM projects WHERE owner=?", conn, params=(current_user,))
+            if not my_p_info.empty:
+                sel_proj = st.selectbox("Project for Detailed PDF", [f"{r['p_number']} - {r['name']}" for _, r in my_p_info.iterrows()], key="detailed_sel")
+                p_id_sel = sel_proj.split(" - ")[0]
+                p_name_sel = sel_proj.split(" - ")[1]
+                p_rem_sel = my_p_info[my_p_info['p_number'] == p_id_sel]['remaining'].values[0]
+
+                if st.button("Generate Detailed PDF"):
+                    detailed_logs = pd.read_sql("SELECT date, start_time, end_time, duration FROM time_logs WHERE project_id = ? AND user = ? ORDER BY date DESC", 
+                                                conn, params=(p_id_sel, current_user))
+                    pdf_path = generate_detailed_project_pdf(p_id_sel, p_name_sel, detailed_logs, p_rem_sel)
+                    with open(pdf_path, "rb") as f:
+                        st.download_button("Download Detailed PDF", f, file_name=pdf_path)

@@ -46,7 +46,6 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     
     if os.path.exists("wigi.png"):
         try:
-            # CORREÇÃO: Cálculo explícito da altura para evitar TypeError no ReportLab
             img = Image("wigi.png")
             width_target = 4*cm
             aspect = img.imageHeight / float(img.imageWidth)
@@ -113,9 +112,16 @@ if not st.session_state['logged_in']:
             st.session_state['logged_in'], st.session_state['username'] = True, u
             st.rerun()
 else:
+    # Sidebar e Interface styling para garantir texto BRANCO no modo noturno
     st.markdown("""<style>
-        [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
-        [data-testid="stSidebar"] * { color: #000000 !important; }
+        /* Ajuste do fundo e texto da Sidebar */
+        [data-testid="stSidebar"] { background-color: #262730 !important; }
+        [data-testid="stSidebar"] * { color: #FFFFFF !important; }
+        
+        /* Ajuste do texto dos Botões e Caixas de Seleção (fora do hover) */
+        div.stButton > button, div[data-testid="stSelectbox"] label p { 
+            color: #FFFFFF !important; 
+        }
     </style>""", unsafe_allow_html=True)
     
     if os.path.exists("wigi.png"): st.sidebar.image("wigi.png", use_container_width=True)

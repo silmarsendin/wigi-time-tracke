@@ -138,7 +138,6 @@ if not st.session_state['logged_in']:
     with tab2:
         new_u = st.text_input("New Username", key="reg_u")
         new_p = st.text_input("New Password", type='password', key="reg_p")
-        # ALTERAÇÃO: Adicionado Toggle Switch para definir Manager (Padrão: Não)
         is_m_check = st.toggle("Is Manager?", value=False, key="reg_m")
         if st.button("Register", key="btn_reg"):
             try:
@@ -148,7 +147,6 @@ if not st.session_state['logged_in']:
                 st.success("User created! Please login.")
             except: st.error("Username already exists.")
 else:
-    # Sidebar styling
     st.markdown("""<style>
         [data-testid="stSidebar"] { background-color: #262730 !important; }
         [data-testid="stSidebar"] * { color: #FFFFFF !important; }
@@ -178,6 +176,11 @@ else:
         query = "SELECT * FROM projects" if is_manager else "SELECT * FROM projects WHERE owner=?"
         params = () if is_manager else (current_user,)
         my_projs = pd.read_sql(query, conn, params=params)
+        
+        # CORREÇÃO: Filtra a coluna 'owner' (usuário) se não for manager
+        if not is_manager:
+            my_projs = my_projs.drop(columns=['owner'])
+            
         st.dataframe(my_projs, use_container_width=True)
 
     elif choice == "Time Tracker":

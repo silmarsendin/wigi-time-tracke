@@ -38,10 +38,12 @@ st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 st.markdown("""<style>
     [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
     [data-testid="stSidebar"] * { color: #000000 !important; }
+    /* Estilo para o Toggle Switch Azul quando ativo */
+    div[data-testid="stWidgetLabel"] p { font-weight: bold; }
+    .st-emotion-cache-1dj0h9l.e1f1d6gn2 { background-color: #1E90FF !important; }
 </style>""", unsafe_allow_html=True)
 
 # --- FUNÇÕES DE PDF ---
-
 def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     file_path = f"detailed_report_{project_id}.pdf"
     doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -79,7 +81,6 @@ def generate_weekly_pdf(df, start_date):
     
     if os.path.exists("wigi.png"):
         try:
-            # Removido mask='auto' para evitar fundo preto
             pdf.drawImage("wigi.png", (width/2)-2*cm, height-1.8*cm, width=4*cm, preserveAspectRatio=True)
         except:
             pass
@@ -146,65 +147,13 @@ else:
         user_data = c.execute("SELECT is_working, start_time_db, active_project_id FROM users WHERE username=?", (current_user,)).fetchone()
         working_now, start_time_str, active_p_id = bool(user_data[0]), user_data[1], user_data[2]
 
-        if working_now and active_p_id:
+        # Logica de texto e cor dinâmica para o Toggle
+        if working_now:
             p_data = c.execute("SELECT name FROM projects WHERE p_number=?", (active_p_id,)).fetchone()
-            st.markdown(f'<div style="background-color:#E3F2FD; padding:15px; border-radius:8px; border-left:6px solid #1E90FF; color:#1E90FF;">🔵 <b>Status:</b> Working on Project: <b>{p_data[0] if p_data else "Unknown"}</b></div>', unsafe_allow_html=True)
-        
-        st.toggle("Working", value=working_now, disabled=True)
-        projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=?", conn, params=(current_user,))
-        
-        if not projs.empty:
-            target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
-            p_id = target.split(" - ")[0]
-            c1, c2 = st.columns(2)
-            if c1.button("▶ START", use_container_width=True):
-                c.execute("UPDATE users SET is_working=1, start_time_db=?, active_project_id=? WHERE username=?", (datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), p_id, current_user))
-                conn.commit(); st.rerun()
-            if c2.button("■ STOP", use_container_width=True):
-                if working_now and start_time_str:
-                    start_dt = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S.%f')
-                    diff = (datetime.now() - start_dt).total_seconds() / 3600
-                    c.execute("INSERT INTO time_logs VALUES (?,?,?,?,?,?)", (current_user, active_p_id, datetime.now().date(), start_dt, datetime.now(), diff))
-                    c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number = ?", (diff, active_p_id))
-                    c.execute("UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?", (current_user,))
-                    conn.commit(); st.rerun()
+            st.markdown(f'<div style="background-color:#E3F2FD; padding:15px; border-radius:8px; border-left:6px solid #1E90FF; color:#1E90FF; margin-bottom:10px;">🔵 <b>Status:</b> Working on Project: <b>{p_data[0] if p_data else "Unknown"}</b></div>', unsafe_allow_html=True)
+            toggle_label = "Working"
+        else:
+            toggle_label = "Available"
 
-        st.divider()
-        st.subheader("Manual Adjustment")
-        with st.form("manual_adj"):
-            sel_man = st.selectbox("Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()])
-            m_hrs = st.number_input("Hours", min_value=0.1)
-            m_act = st.radio("Action", ["Add Work", "Remove Work"])
-            if st.form_submit_button("Apply"):
-                val = m_hrs if "Add" in m_act else -m_hrs
-                c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number=?", (val, sel_man.split(" - ")[0]))
-                conn.commit(); st.success("Updated!"); st.rerun()
-
-    elif choice == "Reports":
-        st.header("Reports & Summaries")
-        today = datetime.now().date()
-        last_monday = today - timedelta(days=today.weekday())
-        week_days = [last_monday + timedelta(days=i) for i in range(7)]
-        logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))
-        my_p_list = pd.read_sql("SELECT p_number FROM projects WHERE owner=?", conn, params=(current_user,))['p_number'].tolist()
-        weekly_df = pd.DataFrame(index=my_p_list, columns=week_days).fillna(0.0)
-        for _, row in logs.iterrows():
-            l_date = datetime.strptime(str(row['date']), '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
-            if l_date in weekly_df.columns and row['project_id'] in weekly_df.index:
-                weekly_df.at[row['project_id'], l_date] += row['duration']
-        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("Export Weekly PDF"):
-                w_path = generate_weekly_pdf(weekly_df, last_monday)
-                with open(w_path, "rb") as f: st.download_button("Download Weekly PDF", f, file_name=w_path)
-        with col_b:
-            my_p_info = pd.read_sql("SELECT p_number, name, remaining FROM projects WHERE owner=?", conn, params=(current_user,))
-            if not my_p_info.empty:
-                sel_p = st.selectbox("Project for Detailed PDF", [f"{r['p_number']} - {r['name']}" for _, r in my_p_info.iterrows()])
-                if st.button("Generate Detailed PDF"):
-                    p_id_sel, p_name_sel = sel_p.split(" - ")[0], sel_p.split(" - ")[1]
-                    p_rem = my_p_info[my_p_info['p_number'] == p_id_sel]['remaining'].values[0]
-                    d_logs = pd.read_sql("SELECT date, start_time, end_time, duration FROM time_logs WHERE project_id = ? AND user = ?", conn, params=(p_id_sel, current_user))
-                    pdf_p = generate_detailed_project_pdf(p_id_sel, p_name_sel, d_logs, p_rem)
-                    with open(pdf_p, "rb") as f: st.download_button("Download Detailed PDF", f, file_name=pdf_p)
+        # Toggle Switch com texto dinâmico
+        st.toggle(toggle_label, value=working_now, disabled=True)

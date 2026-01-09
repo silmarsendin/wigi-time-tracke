@@ -17,7 +17,7 @@ c = conn.cursor()
 def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, is_working INTEGER DEFAULT 0, 
-                  start_time_db TEXT, active_project_id TEXT)''')
+                  start_time_db TEXT, active_project_id TEXT, manager INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS projects 
                  (p_number TEXT PRIMARY KEY, name TEXT, allocated FLOAT, remaining FLOAT, owner TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
@@ -27,8 +27,10 @@ def init_db():
     if "is_working" not in cols: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
     if "start_time_db" not in cols: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
     if "active_project_id" not in cols: c.execute("ALTER TABLE users ADD COLUMN active_project_id TEXT")
+    if "manager" not in cols: c.execute("ALTER TABLE users ADD COLUMN manager INTEGER DEFAULT 0")
     
-    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin123')")
+    # Define o admin como manager por padrão
+    c.execute("INSERT OR IGNORE INTO users (username, password, manager) VALUES ('admin', 'admin123', 1)")
     conn.commit()
 
 init_db()
@@ -43,7 +45,6 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
     styles = getSampleStyleSheet()
     elements = []
-    
     if os.path.exists("wigi.png"):
         try:
             img = Image("wigi.png")
@@ -55,12 +56,9 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
             elements.append(img)
             elements.append(Spacer(1, 0.5*cm))
         except: pass
-
     elements.append(Paragraph(f"Project Usage Report: {project_name}", styles['Title']))
+    elements.append(Spacer(1, 12)); elements.append(Paragraph(f"Remaining Balance: {remaining:.2f} hours", styles['Normal']))
     elements.append(Spacer(1, 12))
-    elements.append(Paragraph(f"Remaining Balance: {remaining:.2f} hours", styles['Normal']))
-    elements.append(Spacer(1, 12))
-    
     if not logs_df.empty:
         data = [["Date", "Start", "End", "Duration (h)"]]
         for _, row in logs_df.iterrows():
@@ -68,6 +66,28 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
         table = Table(data, colWidths=[3.5*cm, 4.5*cm, 4.5*cm, 3.5*cm])
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('ALIGN', (0,0), (-1,-1), 'CENTER')]))
         elements.append(table)
+    doc.build(elements)
+    return file_path
+
+def generate_manager_report_pdf(df):
+    file_path = "manager_global_report.pdf"
+    doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    elements = [Paragraph("Global Projects Status Report (Manager View)", styles['Title']), Spacer(1, 1*cm)]
+    
+    # Agrupa por usuário para o relatório
+    users = df['owner'].unique()
+    for user in users:
+        elements.append(Paragraph(f"User: {user}", styles['Heading2']))
+        user_projs = df[df['owner'] == user]
+        data = [["Project ID", "Name", "Allocated", "Remaining"]]
+        for _, row in user_projs.iterrows():
+            data.append([row['p_number'], row['name'], f"{row['allocated']:.2f}", f"{row['remaining']:.2f}"])
+        
+        table = Table(data, colWidths=[3*cm, 7*cm, 3*cm, 3*cm])
+        table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), ('GRID', (0, 0), (-1, -1), 0.5, colors.black)]))
+        elements.append(table)
+        elements.append(Spacer(1, 0.5*cm))
     
     doc.build(elements)
     return file_path
@@ -76,15 +96,11 @@ def generate_weekly_pdf(df, start_date):
     file_path = "weekly_summary.pdf"
     pdf = canvas.Canvas(file_path, pagesize=A4)
     width, height = A4
-    
-    pdf.setFillColor(colors.black)
-    pdf.setFont("Helvetica-Bold", 14)
+    pdf.setFillColor(colors.black); pdf.setFont("Helvetica-Bold", 14)
     pdf.drawCentredString(width/2, height-2.0*cm, "TIME SHEET")
-    
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(1.5*cm, height-3.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
     pdf.drawString(width-6*cm, height-3.0*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
-    
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
     for p_id, row in df.iterrows():
@@ -93,12 +109,9 @@ def generate_weekly_pdf(df, start_date):
         line.extend([f"{v:.1f}" if v > 0 else "" for v in row.values])
         line.append(f"{row.sum():.1f}")
         data.append(line)
-        
     table = Table(data, colWidths=[2.2*cm, 4.4*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.4*cm])
     table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, colors.black), ('FONTSIZE', (0, 0), (-1, -1), 8), ('ALIGN', (2,0), (-1,-1), 'CENTER')]))
-    t_w, t_h = table.wrap(width, height)
-    table.drawOn(pdf, 1.5*cm, height-5.5*cm-t_h)
-    pdf.save()
+    t_w, t_h = table.wrap(width, height); table.drawOn(pdf, 1.5*cm, height-5.5*cm-t_h); pdf.save()
     return file_path
 
 # --- LOGIN ---
@@ -108,32 +121,28 @@ if not st.session_state['logged_in']:
     st.title("WIGI Time Manager")
     u, p = st.text_input("Username"), st.text_input("Password", type='password')
     if st.button("Access"):
-        if c.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p)).fetchone():
-            st.session_state['logged_in'], st.session_state['username'] = True, u
+        user_record = c.execute("SELECT username, manager FROM users WHERE username=? AND password=?", (u, p)).fetchone()
+        if user_record:
+            st.session_state['logged_in'], st.session_state['username'] = True, user_record[0]
+            st.session_state['is_manager'] = bool(user_record[1])
             st.rerun()
 else:
-    # Sidebar e Interface styling para garantir texto BRANCO no modo noturno
     st.markdown("""<style>
-        /* Ajuste do fundo e texto da Sidebar */
         [data-testid="stSidebar"] { background-color: #262730 !important; }
         [data-testid="stSidebar"] * { color: #FFFFFF !important; }
-        
-        /* Ajuste do texto dos Botões e Caixas de Seleção (fora do hover) */
-        div.stButton > button, div[data-testid="stSelectbox"] label p { 
-            color: #FFFFFF !important; 
-        }
+        div.stButton > button, div[data-testid="stSelectbox"] label p { color: #FFFFFF !important; }
     </style>""", unsafe_allow_html=True)
     
     if os.path.exists("wigi.png"): st.sidebar.image("wigi.png", use_container_width=True)
     if st.sidebar.button("Logout"):
-        st.session_state['logged_in'] = False
-        st.rerun()
+        st.session_state['logged_in'] = False; st.rerun()
     
     current_user = st.session_state['username']
+    is_manager = st.session_state.get('is_manager', False)
     choice = st.sidebar.selectbox("Navigation", ["Project Registration", "Time Tracker", "Reports"])
 
     if choice == "Project Registration":
-        st.header("My Projects")
+        st.header("Projects Administration")
         with st.form("p_reg"):
             col1, col2 = st.columns(2)
             num, name = col1.text_input("Project ID"), col2.text_input("Project Name")
@@ -143,7 +152,11 @@ else:
                     c.execute("INSERT INTO projects VALUES (?,?,?,?,?)", (num, name, hours, hours, current_user))
                     conn.commit(); st.success("Project Registered!"); st.rerun()
                 except: st.error("Project ID already exists.")
-        my_projs = pd.read_sql("SELECT p_number, name, allocated, remaining FROM projects WHERE owner=?", conn, params=(current_user,))
+        
+        # Manager vê tudo, usuário comum vê apenas os seus
+        query = "SELECT * FROM projects" if is_manager else "SELECT * FROM projects WHERE owner=?"
+        params = () if is_manager else (current_user,)
+        my_projs = pd.read_sql(query, conn, params=params)
         st.dataframe(my_projs, use_container_width=True)
 
     elif choice == "Time Tracker":
@@ -159,12 +172,10 @@ else:
             p_data = c.execute("SELECT name FROM projects WHERE p_number=?", (active_p_id,)).fetchone()
             st.markdown(f'<div style="background-color:#E3F2FD; padding:15px; border-radius:8px; border-left:6px solid #1E90FF; color:#1E90FF; margin-bottom:10px;">🔵 <b>Status:</b> Working on Project: <b>{p_data[0] if p_data else "Unknown"}</b></div>', unsafe_allow_html=True)
             t_label = "Working"
-        else:
-            t_label = "Available"
+        else: t_label = "Available"
 
         st.toggle(t_label, value=working_now, disabled=True)
         projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=?", conn, params=(current_user,))
-        
         if not projs.empty:
             target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
             p_id = target.split(" - ")[0]
@@ -181,19 +192,17 @@ else:
                     c.execute("UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?", (current_user,))
                     conn.commit(); st.rerun()
 
-        st.divider()
-        st.subheader("Manual Adjustment")
-        with st.form("manual_adj"):
-            sel_man = st.selectbox("Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()])
-            m_hrs = st.number_input("Hours", min_value=0.1)
-            m_act = st.radio("Action", ["Add Work", "Remove Work"])
-            if st.form_submit_button("Apply"):
-                val = m_hrs if "Add" in m_act else -m_hrs
-                c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number=?", (val, sel_man.split(" - ")[0]))
-                conn.commit(); st.success("Updated!"); st.rerun()
-
     elif choice == "Reports":
         st.header("Reports & Summaries")
+        if is_manager:
+            st.subheader("🛠 Manager Special Report")
+            if st.button("Generate Global Projects Report (PDF)"):
+                all_p = pd.read_sql("SELECT * FROM projects ORDER BY owner", conn)
+                m_path = generate_manager_report_pdf(all_p)
+                with open(m_path, "rb") as f: st.download_button("Download Global Report", f, file_name=m_path)
+            st.divider()
+
+        # Relatórios padrão continuam abaixo
         today = datetime.now().date()
         last_monday = today - timedelta(days=today.weekday())
         logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))
@@ -203,8 +212,8 @@ else:
             l_date = datetime.strptime(str(row['date']), '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
             if l_date in weekly_df.columns and row['project_id'] in weekly_df.index:
                 weekly_df.at[row['project_id'], l_date] += row['duration']
-        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
         
+        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("Export Weekly PDF"):

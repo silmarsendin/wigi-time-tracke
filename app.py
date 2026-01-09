@@ -11,12 +11,10 @@ from reportlab.lib.units import cm
 import os
 
 # --- DATABASE SETUP ---
-# Conecta ao banco de dados SQLite
 conn = sqlite3.connect('business_manager.db', check_same_thread=False)
 c = conn.cursor()
 
 def init_db():
-    # Cria as tabelas necessárias se não existirem
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, is_working INTEGER DEFAULT 0, 
                   start_time_db TEXT, active_project_id TEXT)''')
@@ -25,7 +23,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
                  (user TEXT, project_id TEXT, date DATE, start_time TIMESTAMP, end_time TIMESTAMP, duration FLOAT)''')
     
-    # Verifica e adiciona colunas de status se necessário
     cols = [column[1] for column in c.execute("PRAGMA table_info(users)")]
     if "is_working" not in cols: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
     if "start_time_db" not in cols: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
@@ -36,7 +33,7 @@ def init_db():
 
 init_db()
 
-# --- APP INTERFACE ---
+# --- APP CONFIG ---
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 
 # --- FUNÇÕES DE PDF ---
@@ -49,6 +46,7 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     
     if os.path.exists("wigi.png"):
         try:
+            # Uso de Platypus Image que lida melhor com transparência em layouts complexos
             logo = Image("wigi.png", width=4*cm, height=2*cm)
             logo.hAlign = 'CENTER'
             elements.append(logo)
@@ -75,17 +73,23 @@ def generate_weekly_pdf(df, start_date):
     pdf = canvas.Canvas(file_path, pagesize=A4)
     width, height = A4
     
+    # Preencher o fundo da área do logo com branco antes de desenhar
+    pdf.setFillColor(colors.white)
+    pdf.rect(0, height-3*cm, width, 3*cm, fill=1, stroke=0)
+
     if os.path.exists("wigi.png"):
         try:
-            # CORREÇÃO: Removido qualquer parâmetro de máscara que causava o fundo preto
-            pdf.drawImage("wigi.png", (width/2)-2*cm, height-1.8*cm, width=4*cm, preserveAspectRatio=True)
+            # CORREÇÃO DEFINITIVA: mask=None evita que o ReportLab tente criar uma máscara de transparência (causa do fundo preto)
+            pdf.drawImage("wigi.png", (width/2)-2*cm, height-2.2*cm, width=4*cm, preserveAspectRatio=True, mask=None)
         except: pass
 
+    pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawCentredString(width/2, height-2.8*cm, "TIME SHEET")
+    pdf.drawCentredString(width/2, height-3.2*cm, "TIME SHEET")
+    
     pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(1.5*cm, height-4.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
-    pdf.drawString(width-6*cm, height-4.5*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
+    pdf.drawString(1.5*cm, height-4.2*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
+    pdf.drawString(width-6*cm, height-4.2*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
     
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
@@ -108,14 +112,12 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
     st.title("WIGI Time Manager")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type='password')
+    u, p = st.text_input("Username"), st.text_input("Password", type='password')
     if st.button("Access"):
         if c.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p)).fetchone():
             st.session_state['logged_in'], st.session_state['username'] = True, u
             st.rerun()
 else:
-    # Sidebar styling
     st.markdown("""<style>
         [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
         [data-testid="stSidebar"] * { color: #000000 !important; }
@@ -148,10 +150,9 @@ else:
         user_data = c.execute("SELECT is_working, start_time_db, active_project_id FROM users WHERE username=?", (current_user,)).fetchone()
         working_now, start_time_str, active_p_id = bool(user_data[0]), user_data[1], user_data[2]
 
-        # Estilo dinâmico para o Toggle e Status Azul
         if working_now:
             st.markdown("""<style>
-                div[data-testid="stToggle"] label p { color: #1E90FF !important; font-weight: bold; }
+                div[data-testid="stToggle"] label p { color: #1E90FF !important; font-weight: bold !important; }
                 div[data-testid="stToggle"] div[aria-checked="true"] { background-color: #1E90FF !important; }
             </style>""", unsafe_allow_html=True)
             p_data = c.execute("SELECT name FROM projects WHERE p_number=?", (active_p_id,)).fetchone()

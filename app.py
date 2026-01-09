@@ -39,7 +39,6 @@ st.markdown("""<style>
     [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
     [data-testid="stSidebar"] * { color: #000000 !important; }
     /* Estilo para o Toggle Switch Azul quando ativo */
-    div[data-testid="stWidgetLabel"] p { font-weight: bold; }
     .st-emotion-cache-1dj0h9l.e1f1d6gn2 { background-color: #1E90FF !important; }
 </style>""", unsafe_allow_html=True)
 
@@ -147,7 +146,6 @@ else:
         user_data = c.execute("SELECT is_working, start_time_db, active_project_id FROM users WHERE username=?", (current_user,)).fetchone()
         working_now, start_time_str, active_p_id = bool(user_data[0]), user_data[1], user_data[2]
 
-        # Logica de texto e cor dinâmica para o Toggle
         if working_now:
             p_data = c.execute("SELECT name FROM projects WHERE p_number=?", (active_p_id,)).fetchone()
             st.markdown(f'<div style="background-color:#E3F2FD; padding:15px; border-radius:8px; border-left:6px solid #1E90FF; color:#1E90FF; margin-bottom:10px;">🔵 <b>Status:</b> Working on Project: <b>{p_data[0] if p_data else "Unknown"}</b></div>', unsafe_allow_html=True)
@@ -155,5 +153,24 @@ else:
         else:
             toggle_label = "Available"
 
-        # Toggle Switch com texto dinâmico
+        # Toggle Switch Informativo (Sempre desativado pois o controle é nos botões START/STOP)
         st.toggle(toggle_label, value=working_now, disabled=True)
+        
+        projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=?", conn, params=(current_user,))
+        
+        if not projs.empty:
+            target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
+            p_id = target.split(" - ")[0]
+            
+            c1, c2 = st.columns(2)
+            
+            # BOTÃO START: Habilitado apenas se NÃO estiver trabalhando
+            if c1.button("▶ START", use_container_width=True, disabled=working_now):
+                c.execute("UPDATE users SET is_working=1, start_time_db=?, active_project_id=? WHERE username=?", (datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), p_id, current_user))
+                conn.commit(); st.rerun()
+            
+            # BOTÃO STOP: Habilitado apenas se ESTIVER trabalhando
+            if c2.button("■ STOP", use_container_width=True, disabled=not working_now):
+                if working_now and start_time_str:
+                    start_dt = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S.%f')
+                    diff = (datetime.now() - start_dt).total_

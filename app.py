@@ -3,7 +3,7 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -35,7 +35,8 @@ st.markdown("""<style>
 
 def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     file_path = f"detailed_report_{project_id}.pdf"
-    doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm)
+    # A4 padrão já é "em pé" (Portrait)
+    doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -60,7 +61,8 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
             en_t = str(row['end_time']).split(' ')[1].split('.')[0] if ' ' in str(row['end_time']) else str(row['end_time'])
             data.append([str(row['date']), st_t, en_t, f"{row['duration']:.2f}"])
 
-        table = Table(data, colWidths=[3*cm, 4*cm, 4*cm, 3*cm])
+        # Ajuste de larguras para A4 em pé (aprox 18cm úteis)
+        table = Table(data, colWidths=[3*cm, 5*cm, 5*cm, 3*cm])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -75,8 +77,9 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
 
 def generate_weekly_pdf(df, start_date):
     file_path = "weekly_summary.pdf"
-    pdf = canvas.Canvas(file_path, pagesize=landscape(A4))
-    width, height = landscape(A4)
+    # Mudado de landscape(A4) para A4 (em pé)
+    pdf = canvas.Canvas(file_path, pagesize=A4)
+    width, height = A4
 
     if os.path.exists("wigi.png"):
         try:
@@ -89,9 +92,9 @@ def generate_weekly_pdf(df, start_date):
     pdf.drawCentredString(width/2, height - 3.0*cm, "DESIGN DEPARTMENT")
 
     pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(2*cm, height - 4.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
-    pdf.drawString(2*cm, height - 4.5*cm, "Employee No: 261097")
-    pdf.drawString(width - 7*cm, height - 4.5*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
+    pdf.drawString(1.5*cm, height - 4.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
+    pdf.drawString(1.5*cm, height - 4.5*cm, "Employee No: 261097")
+    pdf.drawString(width - 6*cm, height - 4.5*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
 
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
@@ -107,10 +110,11 @@ def generate_weekly_pdf(df, start_date):
         data.append(line)
         total_general += row_total
 
-    table = Table(data, colWidths=[2.5*cm, 5.5*cm, 1.2*cm, 1.2*cm, 1.2*cm, 1.2*cm, 1.2*cm, 1.2*cm, 1.2*cm, 1.5*cm])
+    # Larguras reduzidas para caber no A4 em pé (Total aprox 18.5cm)
+    table = Table(data, colWidths=[2.2*cm, 4.5*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.1*cm, 1.3*cm])
     table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTSIZE', (0, 0), (-1, -1), 8), # Fonte menor para caber
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
         ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
@@ -118,17 +122,18 @@ def generate_weekly_pdf(df, start_date):
     ]))
 
     t_width, t_height = table.wrap(width, height)
-    table.drawOn(pdf, 2*cm, height - 6*cm - t_height)
+    table.drawOn(pdf, 1.5*cm, height - 6*cm - t_height)
 
-    pdf.drawString(2*cm, 3*cm, "Emp. Signature: _______________________")
-    pdf.drawString(width - 10*cm, 3*cm, "Super. Signature: ______________________")
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(width - 5*cm, 3.5*cm, f"TOTAL RT: {total_general:.1f}")
+    # Assinaturas ajustadas para a largura menor
+    pdf.drawString(1.5*cm, 3*cm, "Emp. Signature: _______________________")
+    pdf.drawString(width - 8*cm, 3*cm, "Super. Signature: ______________________")
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(width - 4.5*cm, 3.5*cm, f"TOTAL RT: {total_general:.1f}")
 
     pdf.save()
     return file_path
 
-# --- INTERFACE PRINCIPAL ---
+# --- INTERFACE PRINCIPAL (O restante do código permanece igual) ---
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 
 if os.path.exists("wigi.png"):
@@ -163,7 +168,6 @@ else:
         st.rerun()
     
     current_user = st.session_state['username']
-    # ATENÇÃO: Verifique se os nomes das opções batem com os 'if' abaixo
     choice = st.sidebar.selectbox("Navigation", ["Project Registration", "Time Tracker", "Weekly Reports"])
 
     if choice == "Project Registration":

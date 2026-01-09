@@ -46,16 +46,16 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     
     if os.path.exists("wigi.png"):
         try:
-            # CORREÇÃO: Carregamos a imagem e definimos a largura. 
-            # O ReportLab calculará a altura proporcional internamente de forma segura.
+            # CORREÇÃO: Cálculo explícito da altura para evitar TypeError no ReportLab
             img = Image("wigi.png")
-            img.drawWidth = 4*cm
-            img.drawHeight = (img.drawWidth * img.imageHeight) / img.imageWidth
+            width_target = 4*cm
+            aspect = img.imageHeight / float(img.imageWidth)
+            img.drawWidth = width_target
+            img.drawHeight = width_target * aspect
             img.hAlign = 'CENTER'
             elements.append(img)
             elements.append(Spacer(1, 0.5*cm))
-        except Exception as e:
-            st.error(f"Error loading logo: {e}")
+        except: pass
 
     elements.append(Paragraph(f"Project Usage Report: {project_name}", styles['Title']))
     elements.append(Spacer(1, 12))
@@ -102,7 +102,7 @@ def generate_weekly_pdf(df, start_date):
     pdf.save()
     return file_path
 
-# --- LOGIN E NAVEGAÇÃO ---
+# --- LOGIN ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
@@ -174,6 +174,17 @@ else:
                     c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number = ?", (diff, active_p_id))
                     c.execute("UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?", (current_user,))
                     conn.commit(); st.rerun()
+
+        st.divider()
+        st.subheader("Manual Adjustment")
+        with st.form("manual_adj"):
+            sel_man = st.selectbox("Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()])
+            m_hrs = st.number_input("Hours", min_value=0.1)
+            m_act = st.radio("Action", ["Add Work", "Remove Work"])
+            if st.form_submit_button("Apply"):
+                val = m_hrs if "Add" in m_act else -m_hrs
+                c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number=?", (val, sel_man.split(" - ")[0]))
+                conn.commit(); st.success("Updated!"); st.rerun()
 
     elif choice == "Reports":
         st.header("Reports & Summaries")

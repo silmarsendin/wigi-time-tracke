@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import os
@@ -32,12 +32,20 @@ st.markdown("""<style>
 
 # --- PDF FUNCTIONS ---
 
-# NOVA FUNÇÃO: Relatório detalhado solicitado
 def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     file_path = f"detailed_report_{project_id}.pdf"
     doc = SimpleDocTemplate(file_path, pagesize=A4)
     styles = getSampleStyleSheet()
     elements = []
+
+    # Adicionar Logo se existir
+    if os.path.exists("wigi.png"):
+        try:
+            logo = Image("wigi.png", width=60, height=30)
+            logo.hAlign = 'LEFT'
+            elements.append(logo)
+        except:
+            pass
 
     elements.append(Paragraph(f"Project Usage Report: {project_name} ({project_id})", styles['Title']))
     elements.append(Spacer(1, 12))
@@ -48,7 +56,6 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     if not logs_df.empty:
         data = [["Date", "Start Time", "End Time", "Duration (h)"]]
         for _, row in logs_df.iterrows():
-            # Tratamento de formato de data/hora para evitar erros de visualização
             st_t = row['start_time'].split('.')[0] if isinstance(row['start_time'], str) else row['start_time'].strftime('%H:%M:%S')
             en_t = row['end_time'].split('.')[0] if isinstance(row['end_time'], str) else row['end_time'].strftime('%H:%M:%S')
             data.append([str(row['date']), st_t, en_t, f"{row['duration']:.2f}"])
@@ -63,21 +70,41 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
         ]))
         elements.append(table)
-    else:
-        elements.append(Paragraph("No logs found for this project.", styles['Normal']))
-
+    
     doc.build(elements)
     return file_path
 
 def generate_weekly_pdf(df, start_date):
     file_path = "weekly_summary.pdf"
+    # Usamos landscape para o relatório semanal
     pdf = canvas.Canvas(file_path, pagesize=landscape(A4))
+    width, height = landscape(A4)
+
+    # Adicionar Logo no canto superior esquerdo
+    if os.path.exists("wigi.png"):
+        try:
+            pdf.drawImage("wigi.png", 50, height - 60, width=60, height=30, mask='auto')
+        except:
+            pass
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(50, height - 90, f"Weekly Summary - Week of {start_date.strftime('%d/%m/%Y')}")
+    
     data = [["Project"] + [col.strftime('%a %d/%m') for col in df.columns]]
     for index, row in df.iterrows():
         data.append([index] + [f"{v:.2f}" for v in row.values])
+    
     table = Table(data)
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
-    table.wrapOn(pdf, 50, 400); table.drawOn(pdf, 50, 400); pdf.save()
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER')
+    ]))
+    
+    table.wrapOn(pdf, 50, height - 250)
+    table.drawOn(pdf, 50, height - 250)
+    pdf.save()
     return file_path
 
 # --- APP INTERFACE ---
@@ -175,10 +202,10 @@ else:
         with col_a:
             if st.button("Export Weekly PDF"):
                 w_path = generate_weekly_pdf(weekly_df, last_monday)
-                with open(w_path, "rb") as f: st.download_button("Download Weekly PDF", f, file_name=w_path)
+                with open(w_path, "rb") as f: 
+                    st.download_button("Download Weekly PDF", f, file_name=w_path)
         
         with col_b:
-            # Interface para o novo relatório detalhado por projeto
             st.write("---")
             st.subheader("Detailed Project Report")
             my_p_info = pd.read_sql("SELECT p_number, name, remaining FROM projects WHERE owner=?", conn, params=(current_user,))

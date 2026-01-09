@@ -15,7 +15,6 @@ conn = sqlite3.connect('business_manager.db', check_same_thread=False)
 c = conn.cursor()
 
 def init_db():
-    # Criação das tabelas com a nova coluna 'finished'
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, is_working INTEGER DEFAULT 0, 
                   start_time_db TEXT, active_project_id TEXT, manager INTEGER DEFAULT 0)''')
@@ -24,7 +23,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
                  (user TEXT, project_id TEXT, date DATE, start_time TIMESTAMP, end_time TIMESTAMP, duration FLOAT)''')
     
-    # Migração para bancos de dados existentes
     cols_users = [column[1] for column in c.execute("PRAGMA table_info(users)")]
     if "is_working" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
     if "start_time_db" not in cols_users: c.execute("ALTER TABLE users ADD COLUMN start_time_db TEXT")
@@ -174,7 +172,6 @@ else:
             col1, col2 = st.columns(2)
             num, name = col1.text_input("Project ID"), col2.text_input("Project Name")
             hours = st.number_input("Allocated Time", min_value=0.0)
-            # NOVO CAMPO: Finished (padrão False)
             is_finished = st.checkbox("Finished", value=False)
             
             if st.form_submit_button("Save Project"):
@@ -187,10 +184,7 @@ else:
         query = "SELECT * FROM projects" if is_manager else "SELECT * FROM projects WHERE owner=?"
         params = () if is_manager else (current_user,)
         my_projs = pd.read_sql(query, conn, params=params)
-        
-        if not is_manager:
-            my_projs = my_projs.drop(columns=['owner'])
-            
+        if not is_manager: my_projs = my_projs.drop(columns=['owner'])
         st.dataframe(my_projs, use_container_width=True)
 
     elif choice == "Time Tracker":
@@ -209,8 +203,9 @@ else:
         else: t_label = "Available"
 
         st.toggle(t_label, value=working_now, disabled=True)
-        # Filtro para não listar projetos finalizados no Tracker (Opcional, mas recomendado)
-        projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=? AND finished=0", conn, params=(current_user,))
+        
+        # Lista projetos não finalizados
+        projs = pd.read_sql("SELECT p_number, name, finished FROM projects WHERE owner=? AND finished=0", conn, params=(current_user,))
         if not projs.empty:
             target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
             p_id = target.split(" - ")[0]
@@ -226,6 +221,24 @@ else:
                     c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number = ?", (diff, active_p_id))
                     c.execute("UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?", (current_user,))
                     conn.commit(); st.rerun()
+
+            # --- FORMULÁRIO DE AJUSTE MANUAL E FINALIZAÇÃO ---
+            st.divider()
+            st.subheader("Manual Adjustment & Status")
+            with st.form("manual_adj"):
+                # Busca status atual de finalização para o projeto selecionado
+                proj_status = c.execute("SELECT finished FROM projects WHERE p_number=?", (p_id,)).fetchone()
+                m_hrs = st.number_input("Hours to adjust", min_value=0.0, step=0.1)
+                m_act = st.radio("Action", ["Add Work (Reduces Remaining)", "Remove Work (Increases Remaining)"])
+                m_fin = st.checkbox("Finalize Project", value=bool(proj_status[0]) if proj_status else False)
+                
+                if st.form_submit_button("Apply Changes"):
+                    val = m_hrs if "Add" in m_act else -m_hrs
+                    fin_val = 1 if m_fin else 0
+                    c.execute("UPDATE projects SET remaining = remaining - ?, finished = ? WHERE p_number = ?", (val, fin_val, p_id))
+                    conn.commit()
+                    st.success("Project updated successfully!")
+                    st.rerun()
 
     elif choice == "Reports":
         st.header("Reports & Summaries")

@@ -25,7 +25,7 @@ def init_db():
 
 init_db()
 
-# --- CSS PARA FORÇAR BARRA LATERAL BRANCA ---
+# --- CSS PARA BARRA LATERAL ---
 st.markdown("""<style>
     [data-testid="stSidebar"] { background-color: #FFFFFF !important; }
     [data-testid="stSidebar"] * { color: #000000 !important; }
@@ -56,8 +56,8 @@ def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     if not logs_df.empty:
         data = [["Date", "Start", "End", "Duration (h)"]]
         for _, row in logs_df.iterrows():
-            st_t = row['start_time'].split('.')[0] if isinstance(row['start_time'], str) else row['start_time'].strftime('%H:%M')
-            en_t = row['end_time'].split('.')[0] if isinstance(row['end_time'], str) else row['end_time'].strftime('%H:%M')
+            st_t = str(row['start_time']).split(' ')[1].split('.')[0] if ' ' in str(row['start_time']) else str(row['start_time'])
+            en_t = str(row['end_time']).split(' ')[1].split('.')[0] if ' ' in str(row['end_time']) else str(row['end_time'])
             data.append([str(row['date']), st_t, en_t, f"{row['duration']:.2f}"])
 
         table = Table(data, colWidths=[3*cm, 4*cm, 4*cm, 3*cm])
@@ -78,37 +78,30 @@ def generate_weekly_pdf(df, start_date):
     pdf = canvas.Canvas(file_path, pagesize=landscape(A4))
     width, height = landscape(A4)
 
-    # 1. LOGO CENTRALIZADO E MARGEM REDUZIDA
     if os.path.exists("wigi.png"):
         try:
             pdf.drawImage("wigi.png", (width/2) - 2*cm, height - 1.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
         except: pass
 
-    # 2. CABEÇALHO ESTILO TIME SHEET
     pdf.setFont("Helvetica-Bold", 14)
     pdf.drawCentredString(width/2, height - 2.5*cm, "TIME SHEET")
     pdf.setFont("Helvetica", 11)
     pdf.drawCentredString(width/2, height - 3.0*cm, "DESIGN DEPARTMENT")
 
-    # Informações do Funcionário e Data
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(2*cm, height - 4.0*cm, f"Emp Name: {st.session_state.get('username', 'User')}")
-    pdf.drawString(2*cm, height - 4.5*cm, "Employee No: 261097") # Exemplo fixo conforme PDF
+    pdf.drawString(2*cm, height - 4.5*cm, "Employee No: 261097")
     pdf.drawString(width - 7*cm, height - 4.5*cm, f"Week Ending: {start_date.strftime('%m/%d/%y')}")
 
-    # 3. CONSTRUÇÃO DA TABELA (M, T, W, T, F, S, S)
     headers = ["Job #", "Job Name", "M", "T", "W", "T", "F", "S", "S", "RT"]
     data = [headers]
 
     total_general = 0
     for p_id, row in df.iterrows():
-        p_name = c.execute("SELECT name FROM projects WHERE p_number = ?", (p_id,)).fetchone()
-        p_name = p_name[0] if p_name else "Unknown"
-        
+        p_info = c.execute("SELECT name FROM projects WHERE p_number = ?", (p_id,)).fetchone()
+        p_name = p_info[0] if p_info else "Unknown"
         line = [p_id, p_name]
-        # Adiciona horas apenas se > 0 para limpar o visual
         line.extend([f"{v:.1f}" if v > 0 else "" for v in row.values])
-        
         row_total = row.sum()
         line.append(f"{row_total:.1f}")
         data.append(line)
@@ -127,7 +120,6 @@ def generate_weekly_pdf(df, start_date):
     t_width, t_height = table.wrap(width, height)
     table.drawOn(pdf, 2*cm, height - 6*cm - t_height)
 
-    # 4. ASSINATURAS E TOTAIS
     pdf.drawString(2*cm, 3*cm, "Emp. Signature: _______________________")
     pdf.drawString(width - 10*cm, 3*cm, "Super. Signature: ______________________")
     pdf.setFont("Helvetica-Bold", 12)
@@ -136,7 +128,7 @@ def generate_weekly_pdf(df, start_date):
     pdf.save()
     return file_path
 
-# --- INTERFACE STREAMLIT ---
+# --- INTERFACE PRINCIPAL ---
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 
 if os.path.exists("wigi.png"):
@@ -171,6 +163,7 @@ else:
         st.rerun()
     
     current_user = st.session_state['username']
+    # ATENÇÃO: Verifique se os nomes das opções batem com os 'if' abaixo
     choice = st.sidebar.selectbox("Navigation", ["Project Registration", "Time Tracker", "Weekly Reports"])
 
     if choice == "Project Registration":
@@ -216,4 +209,33 @@ else:
         logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))
         my_p_list = pd.read_sql("SELECT p_number FROM projects WHERE owner=?", conn, params=(current_user,))['p_number'].tolist()
         
-        weekly_df = pd
+        weekly_df = pd.DataFrame(index=my_p_list, columns=week_days).fillna(0.0)
+        for _, row in logs.iterrows():
+            log_date = datetime.strptime(str(row['date']), '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
+            if log_date in weekly_df.columns and row['project_id'] in weekly_df.index:
+                weekly_df.at[row['project_id'], log_date] += row['duration']
+        
+        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_container_width=True)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Export Weekly PDF"):
+                w_path = generate_weekly_pdf(weekly_df, last_monday)
+                with open(w_path, "rb") as f: st.download_button("Download Weekly PDF", f, file_name=w_path)
+        
+        with col_b:
+            st.write("---")
+            st.subheader("Detailed Project Report")
+            my_p_info = pd.read_sql("SELECT p_number, name, remaining FROM projects WHERE owner=?", conn, params=(current_user,))
+            if not my_p_info.empty:
+                sel_proj = st.selectbox("Project for Detailed PDF", [f"{r['p_number']} - {r['name']}" for _, r in my_p_info.iterrows()], key="detailed_sel")
+                p_id_sel = sel_proj.split(" - ")[0]
+                p_name_sel = sel_proj.split(" - ")[1]
+                p_rem_sel = my_p_info[my_p_info['p_number'] == p_id_sel]['remaining'].values[0]
+
+                if st.button("Generate Detailed PDF"):
+                    detailed_logs = pd.read_sql("SELECT date, start_time, end_time, duration FROM time_logs WHERE project_id = ? AND user = ? ORDER BY date DESC", 
+                                                conn, params=(p_id_sel, current_user))
+                    pdf_path = generate_detailed_project_pdf(p_id_sel, p_name_sel, detailed_logs, p_rem_sel)
+                    with open(pdf_path, "rb") as f:
+                        st.download_button("Download Detailed PDF", f, file_name=pdf_path)

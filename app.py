@@ -10,7 +10,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 import os
 
-# --- CONFIGURAÇÃO DA BASE DE DADOS ---
+# --- DATABASE SETUP ---
 conn = sqlite3.connect('business_manager.db', check_same_thread=False)
 c = conn.cursor()
 
@@ -21,8 +21,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS time_logs 
                  (user TEXT, project_id TEXT, date DATE, start_time TIMESTAMP, end_time TIMESTAMP, duration FLOAT)''')
     c.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin123')")
-    
-    # Garantir que a coluna is_working existe (migração simples)
     try:
         c.execute("ALTER TABLE users ADD COLUMN is_working INTEGER DEFAULT 0")
     except: pass
@@ -30,7 +28,8 @@ def init_db():
 
 init_db()
 
-# --- FUNÇÕES DE PDF (Mantidas conforme sua última solicitação) ---
+# --- PDF FUNCTIONS ---
+# [As funções generate_detailed_project_pdf e generate_weekly_pdf permanecem iguais à versão anterior]
 def generate_detailed_project_pdf(project_id, project_name, logs_df, remaining):
     file_path = f"detailed_report_{project_id}.pdf"
     doc = SimpleDocTemplate(file_path, pagesize=A4, topMargin=1*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
@@ -89,7 +88,7 @@ def generate_weekly_pdf(df, start_date):
     pdf.save()
     return file_path
 
-# --- INTERFACE ---
+# --- APP INTERFACE ---
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 
 if 'logged_in' not in st.session_state:
@@ -102,12 +101,10 @@ if not st.session_state['logged_in']:
         u = st.text_input("Username")
         p = st.text_input("Password", type='password')
         if st.button("Access"):
-            user_data = c.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p)).fetchone()
-            if user_data:
+            if c.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p)).fetchone():
                 st.session_state['logged_in'], st.session_state['username'] = True, u
                 st.rerun()
             else: st.error("Wrong credentials")
-    # ... Registro omitido para brevidade ...
 else:
     current_user = st.session_state['username']
     choice = st.sidebar.selectbox("Navigation", ["Project Registration", "Time Tracker", "Weekly Reports"])
@@ -115,25 +112,33 @@ else:
     if choice == "Time Tracker":
         st.header("Work Logging")
         
-        # BUSCAR ESTADO NO BANCO DE DADOS
-        user_status = c.execute("SELECT is_working FROM users WHERE username=?", (current_user,)).fetchone()
-        working_now = bool(user_status[0]) if user_status else False
+        # BUSCAR ESTADO NO BANCO
+        user_data = c.execute("SELECT is_working FROM users WHERE username=?", (current_user,)).fetchone()
+        working_now = bool(user_data[0]) if user_data else False
 
-        # EXIBIÇÃO DO TOGGLE (Apenas visualização)
-        st.toggle("Working", value=working_now, disabled=True)
+        # ESTILIZAÇÃO AZUL PARA WORKING
+        if working_now:
+            st.markdown("""<style>
+                div[data-testid="stToggle"] > label { color: #1E90FF !important; font-weight: bold; }
+                .working-box { background-color: #E3F2FD; padding: 10px; border-radius: 5px; border-left: 5px solid #1E90FF; margin-bottom: 20px; color: #1E90FF; }
+            </style>""", unsafe_allow_html=True)
+            st.markdown('<div class="working-box">🔵 <b>Status:</b> Atualmente trabalhando em um projeto...</div>', unsafe_allow_html=True)
         
+        st.toggle("Working", value=working_now, disabled=True)
+
         projs = pd.read_sql("SELECT p_number, name FROM projects WHERE owner=?", conn, params=(current_user,))
+        
+        # SEÇÃO 1: CRONÔMETRO AUTOMÁTICO
+        st.subheader("Automatic Tracker")
         if not projs.empty:
-            target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()])
+            target = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="auto_sel")
             p_id = target.split(" - ")[0]
             c1, c2 = st.columns(2)
-            
             if c1.button("▶ START", use_container_width=True):
                 st.session_state['start_time'] = datetime.now()
                 c.execute("UPDATE users SET is_working = 1 WHERE username = ?", (current_user,))
                 conn.commit()
                 st.rerun()
-                
             if c2.button("■ STOP", use_container_width=True):
                 if 'start_time' in st.session_state:
                     diff = (datetime.now() - st.session_state['start_time']).total_seconds() / 3600
@@ -144,4 +149,54 @@ else:
                     del st.session_state['start_time']
                     st.rerun()
 
-    # ... Restante das abas (Registration / Reports) ...
+        st.divider()
+
+        # SEÇÃO 2: AJUSTE MANUAL (NOVO)
+        st.subheader("Manual Time Adjustment")
+        with st.form("manual_adjust"):
+            sel_manual = st.selectbox("Select Project", [f"{r['p_number']} - {r['name']}" for _, r in projs.iterrows()], key="man_sel")
+            man_hours = st.number_input("Hours to Adjust", min_value=0.1, step=0.1)
+            man_action = st.radio("Action", ["Add Work Time (Reduces Balance)", "Remove Work Time (Increases Balance)"], horizontal=True)
+            
+            if st.form_submit_button("Apply Adjustment"):
+                p_id_man = sel_manual.split(" - ")[0]
+                # Se adicionar tempo de trabalho, subtrai do saldo restante
+                # Se remover tempo de trabalho, soma de volta ao saldo restante
+                val = man_hours if "Add" in man_action else -man_hours
+                
+                c.execute("UPDATE projects SET remaining = remaining - ? WHERE p_number = ? AND owner = ?", (val, p_id_man, current_user))
+                # Log do ajuste manual
+                c.execute("INSERT INTO time_logs VALUES (?,?,?,?,?,?)", 
+                          (current_user, p_id_man, datetime.now().date(), "MANUAL", "MANUAL", val))
+                conn.commit()
+                st.success(f"Adjusted {man_hours}h for project {p_id_man}!")
+                st.rerun()
+
+    # [O restante das opções "Project Registration" e "Weekly Reports" permanecem iguais]
+    elif choice == "Project Registration":
+        st.header("My Projects")
+        with st.form("p_reg"):
+            col1, col2 = st.columns(2)
+            num, name = col1.text_input("Project ID"), col2.text_input("Project Name")
+            hours = st.number_input("Allocated Time", min_value=0.0)
+            if st.form_submit_button("Save Project"):
+                try:
+                    c.execute("INSERT INTO projects VALUES (?,?,?,?,?)", (num, name, hours, hours, current_user))
+                    conn.commit(); st.success("Project Registered!"); st.rerun()
+                except: st.error("Project ID already exists.")
+        my_projs = pd.read_sql("SELECT p_number, name, allocated, remaining FROM projects WHERE owner=?", conn, params=(current_user,))
+        st.dataframe(my_projs, use_container_width=True)
+
+    elif choice == "Weekly Reports":
+        st.header("Your Weekly Summary")
+        today = datetime.now().date()
+        last_monday = today - timedelta(days=today.weekday())
+        week_days = [last_monday + timedelta(days=i) for i in range(7)]
+        logs = pd.read_sql("SELECT project_id, date, duration FROM time_logs WHERE date >= ? AND user = ?", conn, params=(last_monday, current_user))
+        my_p_list = pd.read_sql("SELECT p_number FROM projects WHERE owner=?", conn, params=(current_user,))['p_number'].tolist()
+        weekly_df = pd.DataFrame(index=my_p_list, columns=week_days).fillna(0.0)
+        for _, row in logs.iterrows():
+            log_date = datetime.strptime(str(row['date']), '%Y-%m-%d').date() if isinstance(row['date'], str) else row['date']
+            if log_date in weekly_df.columns and row['project_id'] in weekly_df.index:
+                weekly_df.at[row['project_id'], log_date] += row['duration']
+        st.dataframe(weekly_df.rename(columns=lambda d: d.strftime('%a %d/%m')), use_

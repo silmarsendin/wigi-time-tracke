@@ -138,9 +138,12 @@ if not st.session_state['logged_in']:
     with tab2:
         new_u = st.text_input("New Username", key="reg_u")
         new_p = st.text_input("New Password", type='password', key="reg_p")
+        # ALTERAÇÃO: Adicionado Toggle Switch para definir Manager (Padrão: Não)
+        is_m_check = st.toggle("Is Manager?", value=False, key="reg_m")
         if st.button("Register", key="btn_reg"):
             try:
-                c.execute("INSERT INTO users (username, password, manager) VALUES (?, ?, 0)", (new_u, new_p))
+                m_val = 1 if is_m_check else 0
+                c.execute("INSERT INTO users (username, password, manager) VALUES (?, ?, ?)", (new_u, new_p, m_val))
                 conn.commit()
                 st.success("User created! Please login.")
             except: st.error("Username already exists.")

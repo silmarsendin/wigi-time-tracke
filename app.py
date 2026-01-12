@@ -9,10 +9,8 @@ import os
 # =========================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(ASSETS_DIR, exist_ok=True)
 
 DB_PATH = os.path.join(DATA_DIR, "business_manager.db")
 
@@ -96,7 +94,7 @@ if not st.session_state["logged_in"]:
 # MAIN APP
 # =========================================================
 else:
-    # ================= CSS DEFINITIVO SIDEBAR =================
+    # ================= CSS DEFINITIVO =================
     st.markdown("""
     <style>
     /* Sidebar background */
@@ -104,9 +102,8 @@ else:
         background-color: #262730;
     }
 
-    /* Sidebar labels and text */
+    /* Sidebar labels */
     [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] label {
         color: #FFFFFF !important;
     }
@@ -129,28 +126,30 @@ else:
         color: #000000 !important;
     }
 
-    /* Sidebar buttons (LOGOUT) */
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button {
-        color: #000000 !important;
+    /* ===== FIX DEFINITIVO: LOGOUT BUTTON TEXT ===== */
+    [data-testid="stSidebar"] div[data-testid="stButton"] button {
         background-color: #FFFFFF !important;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button span {
+        color: #000000 !important;
         font-weight: bold;
     }
 
     /* Main page buttons */
-    div[data-testid="stButton"] > button {
+    div[data-testid="stButton"] button span {
         color: #000000 !important;
         font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar
+    # SIDEBAR
     if st.sidebar.button("Logout"):
         st.session_state.clear()
         st.rerun()
 
     user = st.session_state["username"]
-    is_manager = st.session_state.get("is_manager", False)
 
     menu = st.sidebar.selectbox(
         "Navigation",
@@ -268,7 +267,7 @@ else:
                     st.rerun()
 
     # =====================================================
-    # REPORTS (RESTAURADO)
+    # REPORTS
     # =====================================================
     elif menu == "Reports":
         st.header("Reports")

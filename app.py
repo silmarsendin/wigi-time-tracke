@@ -158,6 +158,15 @@ else:
         div.stButton > button, div[data-testid="stSelectbox"] label p { color: #FFFFFF !important; }
     </style>""", unsafe_allow_html=True)
     
+     # === FIX: BLACK TEXT FOR MAIN BUTTONS ===
+    st.markdown("""
+    <style>
+    div[data-testid="stButton"] > button {
+        color: #000000 !important;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)    
     if os.path.exists("wigi.png"): st.sidebar.image("wigi.png", use_container_width=True)
     if st.sidebar.button("Logout"):
         st.session_state['logged_in'] = False; st.rerun()

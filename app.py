@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 # =========================================================
 # PATH SETUP (PERSISTENT)
 # =========================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 DATA_DIR = os.path.join(BASE_DIR, "data")
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
@@ -97,7 +96,7 @@ if not st.session_state["logged_in"]:
 # MAIN APP
 # =========================================================
 else:
-    # ================= CSS FIX DEFINITIVO =================
+    # ================= CSS DEFINITIVO SIDEBAR =================
     st.markdown("""
     <style>
     /* Sidebar background */
@@ -105,14 +104,14 @@ else:
         background-color: #262730;
     }
 
-    /* Default sidebar text */
+    /* Sidebar labels and text */
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] label {
         color: #FFFFFF !important;
     }
 
-    /* === FIX: INPUTS & SELECTBOX TEXT === */
+    /* Sidebar inputs & selects */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] select,
     [data-testid="stSidebar"] textarea {
@@ -120,17 +119,24 @@ else:
         background-color: #FFFFFF !important;
     }
 
-    /* Selected value inside selectbox */
+    /* Selected value in selectbox */
     [data-testid="stSidebar"] div[role="combobox"] > div {
         color: #000000 !important;
     }
 
-    /* Dropdown options */
+    /* Dropdown list */
     div[role="listbox"] * {
         color: #000000 !important;
     }
 
-    /* Main buttons */
+    /* Sidebar buttons (LOGOUT) */
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        color: #000000 !important;
+        background-color: #FFFFFF !important;
+        font-weight: bold;
+    }
+
+    /* Main page buttons */
     div[data-testid="stButton"] > button {
         color: #000000 !important;
         font-weight: bold;
@@ -138,22 +144,24 @@ else:
     </style>
     """, unsafe_allow_html=True)
 
+    # Sidebar
     if st.sidebar.button("Logout"):
         st.session_state.clear()
         st.rerun()
 
     user = st.session_state["username"]
+    is_manager = st.session_state.get("is_manager", False)
 
     menu = st.sidebar.selectbox(
         "Navigation",
-        ["Project Registration", "Time Tracker"]
+        ["Project Registration", "Time Tracker", "Reports"]
     )
 
     # =====================================================
     # PROJECT REGISTRATION
     # =====================================================
     if menu == "Project Registration":
-        st.header("Projects")
+        st.header("Project Registration")
 
         with st.form("proj_form"):
             pid = st.text_input("Project ID")
@@ -161,16 +169,16 @@ else:
             hrs = st.number_input("Allocated Hours", min_value=0.0)
             finished = st.checkbox("Finished")
 
-            if st.form_submit_button("Save"):
+            if st.form_submit_button("Save Project"):
                 try:
                     c.execute(
                         "INSERT INTO projects VALUES (?,?,?,?,?,?)",
                         (pid, pname, hrs, hrs, user, int(finished))
                     )
                     conn.commit()
-                    st.success("Project saved")
+                    st.success("Project saved successfully")
                 except:
-                    st.error("Project already exists")
+                    st.error("Project ID already exists")
 
         df = pd.read_sql(
             "SELECT * FROM projects WHERE owner=?",
@@ -259,3 +267,24 @@ else:
                     st.success("Project updated")
                     st.rerun()
 
+    # =====================================================
+    # REPORTS (RESTAURADO)
+    # =====================================================
+    elif menu == "Reports":
+        st.header("Reports")
+
+        st.subheader("Time Logs")
+        logs = pd.read_sql(
+            "SELECT * FROM time_logs WHERE user=?",
+            conn,
+            params=(user,)
+        )
+        st.dataframe(logs, use_container_width=True)
+
+        st.subheader("Projects Summary")
+        projs = pd.read_sql(
+            "SELECT p_number, name, allocated, remaining, finished FROM projects WHERE owner=?",
+            conn,
+            params=(user,)
+        )
+        st.dataframe(projs, use_container_width=True)

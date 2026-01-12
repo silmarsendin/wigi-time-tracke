@@ -138,7 +138,7 @@ else:
 
     /* Main page buttons */
     div[data-testid="stButton"] button span {
-        color: #000000 !important;
+        color: #000001 !important;
         font-weight: bold;
     }
     </style>

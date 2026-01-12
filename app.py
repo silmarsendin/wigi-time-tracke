@@ -157,6 +157,26 @@ else:
         [data-testid="stSidebar"] * { color: #FFFFFF !important; }
         div.stButton > button, div[data-testid="stSelectbox"] label p { color: #FFFFFF !important; }
     </style>""", unsafe_allow_html=True)
+
+    st.markdown("""
+<style>
+/* Fix text color for sidebar input fields */
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea,
+[data-testid="stSidebar"] select,
+[data-testid="stSidebar"] .stSelectbox,
+[data-testid="stSidebar"] .stTextInput,
+[data-testid="stSidebar"] .stNumberInput {
+    color: #000000 !important;
+}
+
+/* Fix labels inside sidebar inputs */
+[data-testid="stSidebar"] label p {
+    color: #000000 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
     
      # === FIX: BLACK TEXT FOR MAIN BUTTONS ===
     st.markdown("""

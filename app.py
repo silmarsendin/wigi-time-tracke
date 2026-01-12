@@ -167,7 +167,7 @@ else:
 [data-testid="stSidebar"] .stSelectbox,
 [data-testid="stSidebar"] .stTextInput,
 [data-testid="stSidebar"] .stNumberInput {
-    color: #000000 !important;
+    color: #1A1A1A !important;
 }
 
 /* Fix labels inside sidebar inputs */

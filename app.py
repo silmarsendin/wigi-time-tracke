@@ -1,13 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer, Image
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import cm
+from datetime import datetime
 import os
 
 # =========================================================
@@ -16,17 +10,15 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
-REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(REPORTS_DIR, exist_ok=True)
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
 DB_PATH = os.path.join(DATA_DIR, "business_manager.db")
 
 # =========================================================
-# DATABASE CONNECTION
+# DATABASE
 # =========================================================
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 c = conn.cursor()
@@ -42,7 +34,6 @@ def init_db():
             manager INTEGER DEFAULT 0
         )
     """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             p_number TEXT PRIMARY KEY,
@@ -53,23 +44,19 @@ def init_db():
             finished INTEGER DEFAULT 0
         )
     """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS time_logs (
             user TEXT,
             project_id TEXT,
             date DATE,
-            start_time TIMESTAMP,
-            end_time TIMESTAMP,
+            start_time TEXT,
+            end_time TEXT,
             duration REAL
         )
     """)
-
-    c.execute("""
-        INSERT OR IGNORE INTO users (username, password, manager)
-        VALUES ('admin', 'admin123', 1)
-    """)
-
+    c.execute(
+        "INSERT OR IGNORE INTO users (username, password, manager) VALUES ('admin','admin123',1)"
+    )
     conn.commit()
 
 if "db_initialized" not in st.session_state:
@@ -81,66 +68,69 @@ if "db_initialized" not in st.session_state:
 # =========================================================
 st.set_page_config(page_title="WIGI Time Manager", layout="wide")
 
-# =========================================================
-# LOGIN STATE
-# =========================================================
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 # =========================================================
-# LOGIN / REGISTER
+# LOGIN
 # =========================================================
 if not st.session_state["logged_in"]:
     st.title("WIGI Time Manager")
-    tab1, tab2 = st.tabs(["Login", "New User"])
 
-    with tab1:
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Access"):
-            user = c.execute(
-                "SELECT username, manager FROM users WHERE username=? AND password=?",
-                (u, p)
-            ).fetchone()
-            if user:
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = user[0]
-                st.session_state["is_manager"] = bool(user[1])
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
-    with tab2:
-        new_u = st.text_input("New Username")
-        new_p = st.text_input("New Password", type="password")
-        is_m = st.toggle("Is Manager?", value=False)
-        if st.button("Register"):
-            try:
-                c.execute(
-                    "INSERT INTO users (username, password, manager) VALUES (?, ?, ?)",
-                    (new_u, new_p, int(is_m))
-                )
-                conn.commit()
-                st.success("User created successfully!")
-            except:
-                st.error("Username already exists")
+    if st.button("Access"):
+        user = c.execute(
+            "SELECT username, manager FROM users WHERE username=? AND password=?",
+            (u, p)
+        ).fetchone()
+        if user:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = user[0]
+            st.session_state["is_manager"] = bool(user[1])
+            st.rerun()
+        else:
+            st.error("Invalid credentials")
 
 # =========================================================
 # MAIN APP
 # =========================================================
 else:
-    # ================= CSS =================
+    # ================= CSS FIX DEFINITIVO =================
     st.markdown("""
     <style>
-    [data-testid="stSidebar"] { background-color: #262730; }
-    [data-testid="stSidebar"] * { color: #FFFFFF; }
+    /* Sidebar background */
+    [data-testid="stSidebar"] {
+        background-color: #262730;
+    }
 
+    /* Default sidebar text */
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {
+        color: #FFFFFF !important;
+    }
+
+    /* === FIX: INPUTS & SELECTBOX TEXT === */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] select,
     [data-testid="stSidebar"] textarea {
         color: #000000 !important;
+        background-color: #FFFFFF !important;
     }
 
+    /* Selected value inside selectbox */
+    [data-testid="stSidebar"] div[role="combobox"] > div {
+        color: #000000 !important;
+    }
+
+    /* Dropdown options */
+    div[role="listbox"] * {
+        color: #000000 !important;
+    }
+
+    /* Main buttons */
     div[data-testid="stButton"] > button {
         color: #000000 !important;
         font-weight: bold;
@@ -148,55 +138,49 @@ else:
     </style>
     """, unsafe_allow_html=True)
 
-    logo_path = os.path.join(ASSETS_DIR, "wigi.png")
-    if os.path.exists(logo_path):
-        st.sidebar.image(logo_path, use_container_width=True)
-
     if st.sidebar.button("Logout"):
         st.session_state.clear()
         st.rerun()
 
     user = st.session_state["username"]
-    is_manager = st.session_state["is_manager"]
 
     menu = st.sidebar.selectbox(
         "Navigation",
-        ["Project Registration", "Time Tracker", "Reports"]
+        ["Project Registration", "Time Tracker"]
     )
 
     # =====================================================
     # PROJECT REGISTRATION
     # =====================================================
     if menu == "Project Registration":
-        st.header("Project Administration")
+        st.header("Projects")
 
-        with st.form("project_form"):
-            p_id = st.text_input("Project ID")
-            p_name = st.text_input("Project Name")
+        with st.form("proj_form"):
+            pid = st.text_input("Project ID")
+            pname = st.text_input("Project Name")
             hrs = st.number_input("Allocated Hours", min_value=0.0)
             finished = st.checkbox("Finished")
 
-            if st.form_submit_button("Save Project"):
+            if st.form_submit_button("Save"):
                 try:
                     c.execute(
-                        "INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)",
-                        (p_id, p_name, hrs, hrs, user, int(finished))
+                        "INSERT INTO projects VALUES (?,?,?,?,?,?)",
+                        (pid, pname, hrs, hrs, user, int(finished))
                     )
                     conn.commit()
-                    st.success("Project saved successfully!")
+                    st.success("Project saved")
                 except:
-                    st.error("Project ID already exists")
+                    st.error("Project already exists")
 
         df = pd.read_sql(
-            "SELECT * FROM projects" if is_manager else
             "SELECT * FROM projects WHERE owner=?",
             conn,
-            params=() if is_manager else (user,)
+            params=(user,)
         )
         st.dataframe(df, use_container_width=True)
 
     # =====================================================
-    # TIME TRACKER (COM AJUSTE MANUAL E FINALIZAÇÃO)
+    # TIME TRACKER
     # =====================================================
     elif menu == "Time Tracker":
         st.header("Time Tracker")
@@ -206,12 +190,11 @@ else:
             (user,)
         ).fetchone()
 
-        working_now = bool(user_data[0])
-        start_time_str = user_data[1]
+        working = bool(user_data[0])
+        start_time = user_data[1]
         active_pid = user_data[2]
 
-        status = "Working" if working_now else "Available"
-        st.toggle(status, value=working_now, disabled=True)
+        st.toggle("Working" if working else "Available", value=working, disabled=True)
 
         projs = pd.read_sql(
             "SELECT p_number, name FROM projects WHERE owner=? AND finished=0",
@@ -220,12 +203,12 @@ else:
         )
 
         if not projs.empty:
-            choice = st.selectbox(
+            sel = st.selectbox(
                 "Select Project",
                 [f"{r.p_number} - {r.name}" for r in projs.itertuples()]
             )
+            pid = sel.split(" - ")[0]
 
-            pid = choice.split(" - ")[0]
             col1, col2 = st.columns(2)
 
             if col1.button("▶ START"):
@@ -237,67 +220,42 @@ else:
                 st.rerun()
 
             if col2.button("■ STOP"):
-                if working_now and start_time_str:
-                    start = datetime.fromisoformat(start_time_str)
+                if working and start_time:
+                    start = datetime.fromisoformat(start_time)
                     diff = (datetime.now() - start).total_seconds() / 3600
 
                     c.execute(
-                        "INSERT INTO time_logs VALUES (?, ?, ?, ?, ?, ?)",
-                        (user, active_pid, datetime.now().date(), start, datetime.now(), diff)
+                        "INSERT INTO time_logs VALUES (?,?,?,?,?,?)",
+                        (user, active_pid, datetime.now().date(),
+                         start_time, datetime.now().isoformat(), diff)
                     )
-
                     c.execute(
                         "UPDATE projects SET remaining = remaining - ? WHERE p_number=?",
                         (diff, active_pid)
                     )
-
                     c.execute(
                         "UPDATE users SET is_working=0, start_time_db=NULL, active_project_id=NULL WHERE username=?",
                         (user,)
                     )
-
                     conn.commit()
                     st.rerun()
 
-            # -------- AJUSTE MANUAL E FINALIZAÇÃO --------
+            # -------- MANUAL ADJUSTMENT --------
             st.divider()
-            st.subheader("Manual Adjustment & Project Status")
+            st.subheader("Manual Adjustment & Finalize")
 
-            with st.form("manual_adjustment"):
-                proj_status = c.execute(
-                    "SELECT finished FROM projects WHERE p_number=?",
-                    (pid,)
-                ).fetchone()
+            with st.form("manual_adj"):
+                adj = st.number_input("Hours to adjust", min_value=0.0, step=0.1)
+                action = st.radio("Action", ["Add Work", "Remove Work"])
+                fin = st.checkbox("Finalize Project")
 
-                adj_hours = st.number_input("Hours to adjust", min_value=0.0, step=0.1)
-                action = st.radio(
-                    "Action",
-                    ["Add Work (Reduces Remaining)", "Remove Work (Increases Remaining)"]
-                )
-                finalize = st.checkbox(
-                    "Finalize Project",
-                    value=bool(proj_status[0]) if proj_status else False
-                )
-
-                if st.form_submit_button("Apply Changes"):
-                    delta = adj_hours if "Add" in action else -adj_hours
+                if st.form_submit_button("Apply"):
+                    delta = adj if action == "Add Work" else -adj
                     c.execute(
                         "UPDATE projects SET remaining = remaining - ?, finished=? WHERE p_number=?",
-                        (delta, int(finalize), pid)
+                        (delta, int(fin), pid)
                     )
                     conn.commit()
-                    st.success("Project updated successfully!")
+                    st.success("Project updated")
                     st.rerun()
 
-    # =====================================================
-    # REPORTS
-    # =====================================================
-    elif menu == "Reports":
-        st.header("Reports")
-
-        logs = pd.read_sql(
-            "SELECT * FROM time_logs WHERE user=?",
-            conn,
-            params=(user,)
-        )
-        st.dataframe(logs, use_container_width=True)

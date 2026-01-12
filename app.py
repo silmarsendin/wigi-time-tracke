@@ -72,7 +72,6 @@ def init_db():
 
     conn.commit()
 
-# Inicializa o banco apenas uma vez por sessão
 if "db_initialized" not in st.session_state:
     init_db()
     st.session_state["db_initialized"] = True
@@ -93,19 +92,16 @@ if "logged_in" not in st.session_state:
 # =========================================================
 if not st.session_state["logged_in"]:
     st.title("WIGI Time Manager")
-
     tab1, tab2 = st.tabs(["Login", "New User"])
 
     with tab1:
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
-
         if st.button("Access"):
             user = c.execute(
                 "SELECT username, manager FROM users WHERE username=? AND password=?",
                 (u, p)
             ).fetchone()
-
             if user:
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = user[0]
@@ -118,7 +114,6 @@ if not st.session_state["logged_in"]:
         new_u = st.text_input("New Username")
         new_p = st.text_input("New Password", type="password")
         is_m = st.toggle("Is Manager?", value=False)
-
         if st.button("Register"):
             try:
                 c.execute(
@@ -140,14 +135,12 @@ else:
     [data-testid="stSidebar"] { background-color: #262730; }
     [data-testid="stSidebar"] * { color: #FFFFFF; }
 
-    /* Sidebar input text */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] select,
     [data-testid="stSidebar"] textarea {
         color: #000000 !important;
     }
 
-    /* Main buttons text */
     div[data-testid="stButton"] > button {
         color: #000000 !important;
         font-weight: bold;
@@ -200,14 +193,25 @@ else:
             conn,
             params=() if is_manager else (user,)
         )
-
         st.dataframe(df, use_container_width=True)
 
     # =====================================================
-    # TIME TRACKER
+    # TIME TRACKER (COM AJUSTE MANUAL E FINALIZAÇÃO)
     # =====================================================
     elif menu == "Time Tracker":
         st.header("Time Tracker")
+
+        user_data = c.execute(
+            "SELECT is_working, start_time_db, active_project_id FROM users WHERE username=?",
+            (user,)
+        ).fetchone()
+
+        working_now = bool(user_data[0])
+        start_time_str = user_data[1]
+        active_pid = user_data[2]
+
+        status = "Working" if working_now else "Available"
+        st.toggle(status, value=working_now, disabled=True)
 
         projs = pd.read_sql(
             "SELECT p_number, name FROM projects WHERE owner=? AND finished=0",
@@ -230,26 +234,21 @@ else:
                     (datetime.now().isoformat(), pid, user)
                 )
                 conn.commit()
-                st.success("Work started")
+                st.rerun()
 
             if col2.button("■ STOP"):
-                row = c.execute(
-                    "SELECT start_time_db, active_project_id FROM users WHERE username=?",
-                    (user,)
-                ).fetchone()
-
-                if row and row[0]:
-                    start = datetime.fromisoformat(row[0])
+                if working_now and start_time_str:
+                    start = datetime.fromisoformat(start_time_str)
                     diff = (datetime.now() - start).total_seconds() / 3600
 
                     c.execute(
                         "INSERT INTO time_logs VALUES (?, ?, ?, ?, ?, ?)",
-                        (user, pid, datetime.now().date(), start, datetime.now(), diff)
+                        (user, active_pid, datetime.now().date(), start, datetime.now(), diff)
                     )
 
                     c.execute(
                         "UPDATE projects SET remaining = remaining - ? WHERE p_number=?",
-                        (diff, pid)
+                        (diff, active_pid)
                     )
 
                     c.execute(
@@ -258,7 +257,37 @@ else:
                     )
 
                     conn.commit()
-                    st.success("Work stopped and logged")
+                    st.rerun()
+
+            # -------- AJUSTE MANUAL E FINALIZAÇÃO --------
+            st.divider()
+            st.subheader("Manual Adjustment & Project Status")
+
+            with st.form("manual_adjustment"):
+                proj_status = c.execute(
+                    "SELECT finished FROM projects WHERE p_number=?",
+                    (pid,)
+                ).fetchone()
+
+                adj_hours = st.number_input("Hours to adjust", min_value=0.0, step=0.1)
+                action = st.radio(
+                    "Action",
+                    ["Add Work (Reduces Remaining)", "Remove Work (Increases Remaining)"]
+                )
+                finalize = st.checkbox(
+                    "Finalize Project",
+                    value=bool(proj_status[0]) if proj_status else False
+                )
+
+                if st.form_submit_button("Apply Changes"):
+                    delta = adj_hours if "Add" in action else -adj_hours
+                    c.execute(
+                        "UPDATE projects SET remaining = remaining - ?, finished=? WHERE p_number=?",
+                        (delta, int(finalize), pid)
+                    )
+                    conn.commit()
+                    st.success("Project updated successfully!")
+                    st.rerun()
 
     # =====================================================
     # REPORTS
@@ -271,5 +300,4 @@ else:
             conn,
             params=(user,)
         )
-
         st.dataframe(logs, use_container_width=True)
